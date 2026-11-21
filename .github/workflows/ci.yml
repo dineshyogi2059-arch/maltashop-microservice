@@ -1,0 +1,54 @@
+
+name: MaltaShop Microservices CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Docker Compose configuration
+        run: docker compose config
+
+      - name: Build microservices
+        run: docker compose build
+
+      - name: Start services
+        run: docker compose up -d
+
+      - name: Wait for services
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:5000/health && \
+               curl -fsS http://localhost:5001/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services did not become healthy"
+          docker compose logs
+          exit 1
+
+      - name: Test order endpoint
+        run: |
+          response=$(curl -fsS -X POST http://localhost:5000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"product":"CI Test Laptop"}')
+          echo "$response"
+          echo "$response" | grep -q '"status":"confirmed"'
+
+      - name: Display service logs
+        if: always()
+        run: docker compose logs
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
