@@ -1,12 +1,28 @@
+
 services:
   order-service:
     build: ./order-service
     ports:
       - "5000:5000"
     depends_on:
-      - notification-service
+      rabbitmq:
+        condition: service_healthy
 
   notification-service:
     build: ./notification-service
     ports:
       - "5001:5001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
