@@ -4,11 +4,30 @@ import pika
 import json
 import os
 import threading
-
+import sqlite3
 app = Flask(__name__)
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+DB_PATH = "/app/data/notifications.db"
+os.makedirs("/app/data", exist_ok=True)
 
+def init_db():
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT,
+            product TEXT,
+            correlation_id TEXT
+        )
+    """)
+
+    connection.commit()
+    connection.close()
+
+init_db()
 
 def receive_messages():
     while True:
@@ -23,10 +42,25 @@ def receive_messages():
             def callback(ch, method, properties, body):
                 event = json.loads(body)
                 correlation_id = event["correlation_id"]
+                order = event["order"]
+
+                connection = sqlite3.connect(DB_PATH)
+                cursor = connection.cursor()
+
+                cursor.execute(
+                    """
+                    INSERT INTO notifications (order_id, product, correlation_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (order["order_id"], order["product"], correlation_id)
+                )
+
+                connection.commit()
+                connection.close()
 
                 print("New order notification received!")
-                print(f"Order: {event['order']['order_id']}")
-                print(f"Product: {event['order']['product']}")
+                print(f"Order: {order['order_id']}")
+                print(f"Product: {order['product']}")
                 print(f"Correlation ID: {correlation_id}")
 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -44,6 +78,8 @@ def receive_messages():
             print(f"RabbitMQ connection error: {error}")
             import time
             time.sleep(5)
+
+
 
 
 @app.route("/health", methods=["GET"])

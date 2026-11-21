@@ -4,10 +4,30 @@ import pika
 import json
 import uuid
 import os
-
+import sqlite3
 app = Flask(__name__)
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+DB_PATH = "/app/data/orders.db"
+os.makedirs("/app/data", exist_ok=True)
+def init_db():
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            order_id TEXT PRIMARY KEY,
+            product TEXT,
+            status TEXT,
+            correlation_id TEXT
+        )
+    """)
+
+    connection.commit()
+    connection.close()
+
+
+init_db()
 
 @app.route("/orders", methods=["POST"])
 def create_order():
@@ -22,6 +42,20 @@ def create_order():
         "status": "confirmed",
         "correlation_id": correlation_id
     }
+
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO orders (order_id, product, status, correlation_id)
+        VALUES (?, ?, ?, ?)
+        """,
+        (order_id, order["product"], order["status"], correlation_id)
+    )
+
+    connection.commit()
+    connection.close()
 
     try:
         connection = pika.BlockingConnection(
@@ -53,7 +87,6 @@ def create_order():
         return jsonify({"error": "Could not publish order event"}), 503
 
     return jsonify(order), 201
-
 
 @app.route("/health", methods=["GET"])
 def health():
